@@ -626,18 +626,37 @@ public class BLECentralPlugin extends CordovaPlugin implements BluetoothAdapter.
 
     private void findLowEnergyDevices(CallbackContext callbackContext, UUID[] serviceUUIDs, int scanSeconds) {
 
+
+
         if (!locationServicesEnabled()) {
             LOG.w(TAG, "Location Services are disabled");
         }
 
-        if(!PermissionHelper.hasPermission(this, ACCESS_COARSE_LOCATION)) {
-            // save info so we can call this method again after permissions are granted
-            permissionCallback = callbackContext;
-            this.serviceUUIDs = serviceUUIDs;
-            this.scanSeconds = scanSeconds;
-            PermissionHelper.requestPermission(this, REQUEST_ACCESS_COARSE_LOCATION, ACCESS_COARSE_LOCATION);
-            return;
+        if (Build.VERSION.SDK_INT >= 29) {                                  // (API 29) Build.VERSION_CODES.Q
+            if (!PermissionHelper.hasPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)) {
+                permissionCallback = callbackContext;
+                this.serviceUUIDs = serviceUUIDs;
+                this.scanSeconds = scanSeconds;
+
+                String[] permissions = {
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                        "android.permission.ACCESS_BACKGROUND_LOCATION"     // (API 29) Manifest.permission.ACCESS_BACKGROUND_LOCATION
+                };
+
+                PermissionHelper.requestPermissions(this, REQUEST_ACCESS_LOCATION, permissions);
+                return;
+            }
+        } else {
+            if(!PermissionHelper.hasPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION)) {
+                // save info so we can call this method again after permissions are granted
+                permissionCallback = callbackContext;
+                this.serviceUUIDs = serviceUUIDs;
+                this.scanSeconds = scanSeconds;
+                PermissionHelper.requestPermission(this, REQUEST_ACCESS_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION);
+                return;
+            }
         }
+
 
         // return error if already scanning
         if (bluetoothAdapter.isDiscovering()) {
@@ -660,11 +679,18 @@ public class BLECentralPlugin extends CordovaPlugin implements BluetoothAdapter.
         }
 
         discoverCallback = callbackContext;
-
+        bluetoothLeScanner = bluetoothAdapter.getBluetoothLeScanner();
         if (serviceUUIDs != null && serviceUUIDs.length > 0) {
-            bluetoothAdapter.startLeScan(serviceUUIDs, this);
+            List<ScanFilter> filters = new ArrayList<ScanFilter>();
+            for (UUID uuid : serviceUUIDs) {
+                ScanFilter filter = new ScanFilter.Builder().setServiceUuid(
+                        new ParcelUuid(uuid)).build();
+                filters.add(filter);
+            }
+            ScanSettings settings = new ScanSettings.Builder().build();
+            bluetoothLeScanner.startScan(filters, settings, leScanCallback);
         } else {
-            bluetoothAdapter.startLeScan(this);
+            bluetoothLeScanner.startScan(leScanCallback);
         }
 
         if (scanSeconds > 0) {
@@ -673,7 +699,7 @@ public class BLECentralPlugin extends CordovaPlugin implements BluetoothAdapter.
                 @Override
                 public void run() {
                     LOG.d(TAG, "Stopping Scan");
-                    BLECentralPlugin.this.bluetoothAdapter.stopLeScan(BLECentralPlugin.this);
+                    bluetoothLeScanner.stopScan(leScanCallback);
                 }
             }, scanSeconds * 1000);
         }
