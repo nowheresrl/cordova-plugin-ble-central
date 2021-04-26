@@ -80,6 +80,7 @@ public class Peripheral extends BluetoothGattCallback {
     private CallbackContext readCallback;
     private CallbackContext writeCallback;
     private CallbackContext dfuCallback;
+    private CallbackContext requestMtuCallback;
     private Activity currentActivity;
 
     private Map<String, SequentialCallbackContext> notificationCallbacks = new HashMap<String, SequentialCallbackContext>();
@@ -94,8 +95,6 @@ public class Peripheral extends BluetoothGattCallback {
 
     }
 
-    private final DfuProgressListener progressListener = new DfuProgressListener();
-
     public Peripheral(BluetoothDevice device, int advertisingRSSI, byte[] scanRecord) {
 
         this.device = device;
@@ -103,6 +102,8 @@ public class Peripheral extends BluetoothGattCallback {
         this.advertisingData = scanRecord;
 
     }
+
+    private final DfuProgressListener progressListener = new DfuProgressListener();
 
     private void gattConnect() {
 
@@ -188,15 +189,40 @@ public class Peripheral extends BluetoothGattCallback {
 
     @Override
     public void onMtuChanged(BluetoothGatt gatt, int mtu, int status) {
-        LOG.d(TAG, "mtu=%d, status=%d", mtu, status);
         super.onMtuChanged(gatt, mtu, status);
+        LOG.d(TAG, "mtu=%d, status=%d", mtu, status);
+
+        if (status == BluetoothGatt.GATT_SUCCESS) {
+            requestMtuCallback.success(mtu);
+        } else {
+            requestMtuCallback.error("MTU request failed");
+        }
+        requestMtuCallback = null;
     }
 
-    public void requestMtu(int mtuValue) {
+    public void requestMtu(CallbackContext callback, int mtuValue) {
+        LOG.d(TAG, "requestMtu mtu=%d", mtuValue);
+        if (gatt == null) {
+            callback.error("No GATT");
+            return;
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
+            callback.error("Android version does not support requestMtu");
+            return;
+        }
+
+        if (gatt.requestMtu(mtuValue)) {
+            requestMtuCallback = callback;
+        } else {
+            callback.error("Could not initiate MTU request");
+        }
+    }
+
+    public void requestConnectionPriority(int priority) {
         if (gatt != null) {
-            LOG.d(TAG, "requestMtu mtu=%d", mtuValue);
+            LOG.d(TAG, "requestConnectionPriority priority=" + priority);
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                gatt.requestMtu(mtuValue);
+                gatt.requestConnectionPriority(priority);
             }
         }
     }
@@ -819,7 +845,7 @@ public class Peripheral extends BluetoothGattCallback {
             }
         }
     }
-
+    
     public void upgradeFirmware(CallbackContext callbackContext, Uri uri) {
         dfuCallback = callbackContext;
 
@@ -847,7 +873,6 @@ public class Peripheral extends BluetoothGattCallback {
         DfuServiceListenerHelper.unregisterProgressListener(currentActivity, progressListener);
         dfuCallback = null;
     }
-
     // add a new command to the queue
     private void queueCommand(BLECommand command) {
         LOG.d(TAG,"Queuing Command %s", command);
@@ -918,6 +943,8 @@ public class Peripheral extends BluetoothGattCallback {
     private String generateHashKey(UUID serviceUUID, BluetoothGattCharacteristic characteristic) {
         return serviceUUID + "|" + characteristic.getUuid() + "|" + characteristic.getInstanceId();
     }
+
+
     public void createBond(CallbackContext callbackContext, BluetoothAdapter bluetoothAdapter, Context context) {
         int bondState = device.getBondState();
         if (bondState == BluetoothDevice.BOND_BONDED) {
@@ -971,7 +998,7 @@ public class Peripheral extends BluetoothGattCallback {
     public void getBondState(CallbackContext callbackContext) {
         callbackContext.success(bondStates.get(device.getBondState()));
     }
-
+    
     private class DfuProgressListener extends DfuProgressListenerAdapter {
         @Override
         public void onDeviceConnecting(String deviceAddress) {
