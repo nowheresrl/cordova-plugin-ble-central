@@ -35,6 +35,8 @@ import android.content.IntentFilter;
 import android.os.Handler;
 import android.os.Build;
 
+import android.net.Uri;
+
 import android.provider.Settings;
 import org.apache.cordova.CallbackContext;
 import org.apache.cordova.CordovaArgs;
